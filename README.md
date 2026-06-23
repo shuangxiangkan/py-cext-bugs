@@ -13,12 +13,6 @@ It has three main layers:
 - `refcount/`: CPython C API ownership/refcount analysis.
 - `test/`: demo C cases and unit tests.
 
-Run discovery:
-
-```bash
-python py-cext-bugs/main.py discover path/to/project
-```
-
 Run refcount analysis:
 
 ```bash
@@ -35,10 +29,9 @@ python py-cext-bugs/main.py refcount path/to/project > refcount_findings.json
 
 The refcount analyzer runs in several stages:
 
-1. Discover CPython C extension source files.
-   `refcount/c_extension.py` looks for common extension build entry points such
-   as `setup.py`, `pyproject.toml`, Meson, and CMake. If no build metadata is
-   enough, it falls back to C/C++ files that include `Python.h`.
+1. Discover C/C++ source files.
+   `extract/project.py` recursively finds C/C++ source files under the target,
+   excluding common generated, build, and virtualenv directories.
 
 2. Parse C/C++ source with Tree-sitter.
    `extract/tree_sitter_extractor.py` extracts functions, calls, assignments,

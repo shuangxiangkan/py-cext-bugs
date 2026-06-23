@@ -6,7 +6,6 @@ Useful files:
 
 - `demo_refcount_cases.c`: small C file with intentional refcount bug patterns.
 - `test_refcount_analyzer.py`: tests refcount analysis behavior.
-- `test_c_extension_discovery.py`: tests C extension discovery.
 - `helpers.py`: test fixtures and temporary source-tree helper.
 
 Run tests:

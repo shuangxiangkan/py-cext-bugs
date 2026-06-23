@@ -15,7 +15,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 
-from refcount.c_extension import discover as discover_c_extensions
+from extract.project import discover_source_files, find_project_root
 from refcount.ownership_flow import analyze_function_ownership
 from extract.tree_sitter_extractor import (
     extract_functions,
@@ -137,19 +137,9 @@ def _return_is_guarded_null_check(return_node, var: str, source_bytes: bytes) ->
     return False
 
 
-def _source_files_from_discovery(discovery: dict) -> list[Path]:
-    """Return source file paths selected by C extension discovery."""
-    root = Path(discovery["project_root"])
-    files = []
-    seen = set()
-    for extension in discovery.get("extensions", []):
-        for rel_path in extension.get("source_files", []):
-            full_path = root / rel_path
-            if full_path in seen or not full_path.is_file():
-                continue
-            seen.add(full_path)
-            files.append(full_path)
-    return files
+def _source_files_to_scan(scan_root: Path) -> list[Path]:
+    """Return the C/C++ source files that refcount analysis should scan."""
+    return list(discover_source_files(scan_root))
 
 
 def check_potential_leaks(func, source_bytes: bytes, semantics: RefcountSemantics):
@@ -566,9 +556,8 @@ def analyze_path(
 ) -> dict:
     """Analyze a file or directory for refcount ownership issues."""
     target_path = Path(target).resolve()
-    discovery = discover_c_extensions(target_path)
-    project_root = Path(discovery["project_root"])
-    scan_root = Path(discovery["scan_root"])
+    project_root = find_project_root(target_path)
+    scan_root = target_path if target_path.is_dir() else target_path.parent
     semantics = semantics or load_refcount_semantics(api_tables)
 
     findings = []
@@ -576,7 +565,7 @@ def analyze_path(
     functions_analyzed = 0
     files_analyzed = 0
 
-    source_files = _source_files_from_discovery(discovery)
+    source_files = _source_files_to_scan(target_path)
     if max_files:
         source_files = source_files[:max_files]
 
@@ -589,6 +578,8 @@ def analyze_path(
             )
         except OSError as exc:
             skipped.append({"file": str(filepath), "reason": str(exc)})
+            continue
+        if not result["functions_analyzed"]:
             continue
         files_analyzed += 1
         functions_analyzed += result["functions_analyzed"]
@@ -603,7 +594,6 @@ def analyze_path(
     return {
         "project_root": str(project_root),
         "scan_root": str(scan_root),
-        "discovery": discovery,
         "files_analyzed": files_analyzed,
         "functions_analyzed": functions_analyzed,
         "findings": findings,

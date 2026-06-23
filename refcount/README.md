@@ -4,8 +4,7 @@ CPython C extension reference-count analysis.
 
 Main files:
 
-- `c_extension.py`: heuristically discovers C extension sources from `setup.py`, `pyproject.toml`, Meson, CMake, or `#include <Python.h>`.
-- `analyzer.py`: scans discovered source files, runs the checkers, and emits JSON findings.
+- `analyzer.py`: recursively scans C/C++ source files, runs the checkers, and emits JSON findings.
 - `ownership.py`: immutable ownership state model used by data-flow analysis.
 - `ownership_flow.py`: CFG/data-flow based CPython ownership transfer rules.
 - `api_tables.json`: CPython C API ownership tables: new refs, borrowed refs, and stolen refs.
@@ -26,7 +25,7 @@ The analyzer combines two styles of checks:
 
 The path-aware analysis uses this pipeline:
 
-1. `analyzer.py` parses each discovered C/C++ file and extracts functions.
+1. `analyzer.py` parses each C/C++ file under the requested scan root and extracts functions.
 2. `extract/cfg.py` builds a statement-level CFG for each function.
 3. `extract/dataflow.py` propagates `OwnershipState` over that CFG.
 4. `ownership_flow.py` applies CPython C API transfer rules.

@@ -19,12 +19,6 @@ def parse_subcommand_args(argv: list[str]) -> argparse.Namespace:
     refcount.add_argument("--max-files", type=int, default=0)
     refcount.add_argument("--api-tables")
     refcount.add_argument("--no-comment-suppression", action="store_true")
-
-    discover = subparsers.add_parser(
-        "discover",
-        help="Heuristically discover CPython C extension source files",
-    )
-    discover.add_argument("target", nargs="?", default=".")
     return parser.parse_args(argv)
 
 
@@ -32,16 +26,12 @@ def main(argv: list[str] | None = None) -> int:
     if argv is None:
         argv = sys.argv[1:]
 
-    if not argv or argv[0] not in {"discover", "refcount"}:
+    if not argv or argv[0] != "refcount":
         import refcount.analyzer as refcount_analyzer
 
         return refcount_analyzer.main(argv or ["."])
 
     args = parse_subcommand_args(argv)
-    if args.command == "discover":
-        import refcount.c_extension as c_extension
-
-        return c_extension.main([args.target])
     if args.command == "refcount":
         import refcount.analyzer as refcount_analyzer
 

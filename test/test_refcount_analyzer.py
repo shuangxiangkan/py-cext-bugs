@@ -257,6 +257,33 @@ class TestRefcountAnalyzer(unittest.TestCase):
             self.assertIn("total_findings", result["summary"])
             self.assertIn("by_type", result["summary"])
 
+    def test_directory_scan_uses_all_source_files(self):
+        setup_py = """\
+from setuptools import setup, Extension
+
+files = ["src/main.c"]
+setup(ext_modules=[Extension("pkg.main", files)])
+"""
+        helper = """\
+#include <Python.h>
+
+static PyObject *
+helper_func(PyObject *self, PyObject *args)
+{
+    Py_RETURN_NONE;
+}
+"""
+        with TempSourceTree(
+            {
+                "setup.py": setup_py,
+                "src/main.c": MINIMAL_EXTENSION,
+                "src/helper.c": helper,
+            }
+        ) as root:
+            result = refcounts.analyze_path(root)
+            self.assertEqual(result["files_analyzed"], 2)
+            self.assertGreaterEqual(result["functions_analyzed"], 3)
+
 
 @unittest.skipUnless(
     HAS_TREE_SITTER,
