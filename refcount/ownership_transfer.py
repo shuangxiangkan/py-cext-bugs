@@ -3,9 +3,9 @@
 import re
 from dataclasses import dataclass
 
-from extract.cfg import ControlFlowGraph, build_function_cfg
-from extract.dataflow import DataFlowResult, analyze_forward
-from refcount.ownership import (
+from analysis.controlflow import ControlFlowGraph, build_function_cfg
+from analysis.dataflow import DataFlowResult, analyze_forward
+from refcount.ownership_state import (
     BORROWED,
     ESCAPED,
     NULL,

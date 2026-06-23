@@ -17,9 +17,9 @@ else:
     HAS_TREE_SITTER = True
 
 if HAS_TREE_SITTER:
-    from extract.cfg import build_function_cfg
-    from extract.dataflow import analyze_forward
-    from extract.tree_sitter_extractor import extract_functions, parse_string
+    from analysis.controlflow import build_function_cfg
+    from analysis.dataflow import analyze_forward
+    from analysis.parsing import extract_functions, parse_string
 else:
     build_function_cfg = None
     analyze_forward = None

@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 
 import tree_sitter
 
-from extract.tree_sitter_extractor import get_node_text
+from analysis.parsing import get_node_text
 
 
 @dataclass(frozen=True)

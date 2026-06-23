@@ -9,20 +9,20 @@ project.
 
 It has three main layers:
 
-- `extract/`: generic C/C++ source information extraction with Tree-sitter.
+- `analysis/`: generic, check-agnostic C/C++ code analysis (parsing, control flow, data flow, source discovery).
 - `refcount/`: CPython C API ownership/refcount analysis.
-- `test/`: demo C cases and unit tests.
+- `tests/`: demo C cases and unit tests.
 
 Run refcount analysis:
 
 ```bash
-python py-cext-bugs/main.py refcount path/to/project
+python py-cext-bugs/cli.py refcount path/to/project
 ```
 
 Output is JSON printed to stdout. Redirect it if you want a file:
 
 ```bash
-python py-cext-bugs/main.py refcount path/to/project > refcount_findings.json
+python py-cext-bugs/cli.py refcount path/to/project > refcount_findings.json
 ```
 
 ## How refcount analysis works
@@ -30,28 +30,28 @@ python py-cext-bugs/main.py refcount path/to/project > refcount_findings.json
 The refcount analyzer runs in several stages:
 
 1. Discover C/C++ source files.
-   `extract/project.py` recursively finds C/C++ source files under the target,
+   `analysis/sources.py` recursively finds C/C++ source files under the target,
    excluding common generated, build, and virtualenv directories.
 
 2. Parse C/C++ source with Tree-sitter.
-   `extract/tree_sitter_extractor.py` extracts functions, calls, assignments,
+   `analysis/parsing.py` extracts functions, calls, assignments,
    return statements, declarations, and related source locations.
 
 3. Build a small intraprocedural CFG.
-   `extract/cfg.py` models statement-level control flow, including sequential
+   `analysis/controlflow.py` models statement-level control flow, including sequential
    statements, `if`/`else`, `goto` labels, `return`, loops, `break`, and
    `continue`. This lets the analyzer understand common CPython cleanup
    patterns such as `goto error; ... error: Py_XDECREF(obj); return NULL;`.
 
 4. Run forward data-flow.
-   `extract/dataflow.py` propagates state over the CFG to a fixed point. The
+   `analysis/dataflow.py` propagates state over the CFG to a fixed point. The
    refcount layer uses it to track ownership state along each path.
 
 5. Track ownership state.
-   `refcount/ownership.py` represents variables as `owned`, `borrowed`,
+   `refcount/ownership_state.py` represents variables as `owned`, `borrowed`,
    `released`, `stolen`, `returned`, `escaped`, `null`, `unknown`, or `mixed`.
-   `refcount/ownership_flow.py` applies CPython API semantics from
-   `api_tables.json` to update those states.
+   `refcount/ownership_transfer.py` applies CPython API semantics from
+   `api_ownership.json` to update those states.
 
 6. Emit findings.
    `refcount/analyzer.py` combines legacy pattern checks with the newer

@@ -15,9 +15,9 @@ from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 
-from extract.project import discover_source_files, find_project_root
-from refcount.ownership_flow import analyze_function_ownership
-from extract.tree_sitter_extractor import (
+from analysis.sources import discover_source_files, find_project_root
+from refcount.ownership_transfer import analyze_function_ownership
+from analysis.parsing import (
     extract_functions,
     find_assigned_variable,
     find_calls_in_scope,
@@ -28,7 +28,7 @@ from extract.tree_sitter_extractor import (
 
 
 _DATA_DIR = Path(__file__).resolve().parent
-DEFAULT_API_TABLES_PATH = _DATA_DIR / "api_tables.json"
+DEFAULT_API_OWNERSHIP_PATH = _DATA_DIR / "api_ownership.json"
 
 DEFAULT_EXECUTING_APIS = frozenset(
     {
@@ -92,7 +92,7 @@ def load_refcount_semantics(path: str | Path | None = None) -> RefcountSemantics
     The default JSON describes CPython C API ownership rules, but callers can
     pass a different file to analyze another ownership API.
     """
-    table_path = Path(path) if path else DEFAULT_API_TABLES_PATH
+    table_path = Path(path) if path else DEFAULT_API_OWNERSHIP_PATH
     data = json.loads(table_path.read_text(encoding="utf-8"))
     return RefcountSemantics(
         new_ref_apis=frozenset(data.get("new_ref_apis", [])),
@@ -552,13 +552,13 @@ def analyze_path(
     *,
     max_files: int = 0,
     semantics: RefcountSemantics | None = None,
-    api_tables: str | Path | None = None,
+    api_ownership: str | Path | None = None,
 ) -> dict:
     """Analyze a file or directory for refcount ownership issues."""
     target_path = Path(target).resolve()
     project_root = find_project_root(target_path)
     scan_root = target_path if target_path.is_dir() else target_path.parent
-    semantics = semantics or load_refcount_semantics(api_tables)
+    semantics = semantics or load_refcount_semantics(api_ownership)
 
     findings = []
     skipped = []
@@ -610,7 +610,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("target", nargs="?", default=".")
     parser.add_argument("--max-files", type=int, default=0)
-    parser.add_argument("--api-tables", help="JSON file with refcount API tables")
+    parser.add_argument(
+        "--api-ownership", help="JSON file with refcount API ownership tables"
+    )
     return parser.parse_args(argv)
 
 
@@ -620,7 +622,7 @@ def main(argv: list[str] | None = None) -> int:
         result = analyze_path(
             args.target,
             max_files=args.max_files,
-            api_tables=args.api_tables,
+            api_ownership=args.api_ownership,
         )
     except Exception as exc:
         json.dump({"error": str(exc), "type": type(exc).__name__}, sys.stdout, indent=2)

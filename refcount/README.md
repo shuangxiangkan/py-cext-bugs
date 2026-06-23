@@ -5,14 +5,15 @@ CPython C extension reference-count analysis.
 Main files:
 
 - `analyzer.py`: recursively scans C/C++ source files, runs the checkers, and emits JSON findings.
-- `ownership.py`: immutable ownership state model used by data-flow analysis.
-- `ownership_flow.py`: CFG/data-flow based CPython ownership transfer rules.
-- `api_tables.json`: CPython C API ownership tables: new refs, borrowed refs, and stolen refs.
+- `ownership_state.py`: immutable ownership state model used by data-flow analysis.
+- `ownership_transfer.py`: CFG/data-flow based CPython ownership transfer rules.
+- `findings.py`: post-processing helpers for findings (deduplication).
+- `api_ownership.json`: CPython C API ownership tables: new refs, borrowed refs, and stolen refs.
 
 Run directly through the top-level CLI:
 
 ```bash
-python py-cext-bugs/main.py refcount path/to/project
+python py-cext-bugs/cli.py refcount path/to/project
 ```
 
 ## Analysis model
@@ -26,9 +27,9 @@ The analyzer combines two styles of checks:
 The path-aware analysis uses this pipeline:
 
 1. `analyzer.py` parses each C/C++ file under the requested scan root and extracts functions.
-2. `extract/cfg.py` builds a statement-level CFG for each function.
-3. `extract/dataflow.py` propagates `OwnershipState` over that CFG.
-4. `ownership_flow.py` applies CPython C API transfer rules.
+2. `analysis/controlflow.py` builds a statement-level CFG for each function.
+3. `analysis/dataflow.py` propagates `OwnershipState` over that CFG.
+4. `ownership_transfer.py` applies CPython C API transfer rules.
 5. Exit nodes are checked for variables that may still be `owned`.
 
 `OwnershipState` tracks each variable as one of:
@@ -48,7 +49,7 @@ The path-aware analysis uses this pipeline:
 The first data-flow implementation intentionally handles a conservative subset
 of CPython ownership patterns:
 
-- New-reference APIs from `api_tables.json` mark the assigned variable as `owned`.
+- New-reference APIs from `api_ownership.json` mark the assigned variable as `owned`.
 - Borrowed-reference APIs mark the assigned variable as `borrowed`.
 - Release APIs mark the referenced variable as `released`.
 - Stealing APIs mark the stolen argument as `stolen`.

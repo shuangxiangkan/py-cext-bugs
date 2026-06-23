@@ -17,8 +17,7 @@ def parse_subcommand_args(argv: list[str]) -> argparse.Namespace:
     refcount = subparsers.add_parser("refcount", help="Run refcount analysis")
     refcount.add_argument("target", nargs="?", default=".")
     refcount.add_argument("--max-files", type=int, default=0)
-    refcount.add_argument("--api-tables")
-    refcount.add_argument("--no-comment-suppression", action="store_true")
+    refcount.add_argument("--api-ownership")
     return parser.parse_args(argv)
 
 
@@ -38,10 +37,8 @@ def main(argv: list[str] | None = None) -> int:
         refcount_args = [args.target]
         if args.max_files:
             refcount_args.extend(["--max-files", str(args.max_files)])
-        if args.api_tables:
-            refcount_args.extend(["--api-tables", args.api_tables])
-        if args.no_comment_suppression:
-            refcount_args.append("--no-comment-suppression")
+        if args.api_ownership:
+            refcount_args.extend(["--api-ownership", args.api_ownership])
         return refcount_analyzer.main(refcount_args)
     return 2
 

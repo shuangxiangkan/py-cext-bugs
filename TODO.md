@@ -28,7 +28,8 @@ Suggested implementation:
 
 - Add a small parser for `Py_BuildValue` format strings.
 - Track which object arguments correspond to `N` units.
-- In `ownership_flow.py`, mark those arguments as no longer locally owned.
+- In `refcount/ownership_transfer.py`, mark those arguments as no longer
+  locally owned.
 - Add tests for `"N"`, `"NN"`, nested formats such as `"N(ii)"`, and mixed
   formats such as `"OO N"`/`"(NO)"`.
 
@@ -97,7 +98,7 @@ Suggested implementation:
 ## 4. Keep comparing against equal scan corpora
 
 `py-cext-bugs` now scans C/C++ files through
-`extract.project.discover_source_files`. This aligned the Pillow scan with
+`analysis.sources.discover_source_files`. This aligned the Pillow scan with
 `cext-review-toolkit`:
 
 ```text

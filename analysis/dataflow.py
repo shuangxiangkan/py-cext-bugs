@@ -4,7 +4,7 @@ from collections import deque
 from dataclasses import dataclass
 from typing import Callable, Generic, TypeVar
 
-from extract.cfg import CFGEdge, CFGNode, ControlFlowGraph
+from analysis.controlflow import CFGEdge, CFGNode, ControlFlowGraph
 
 
 State = TypeVar("State")

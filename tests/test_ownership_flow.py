@@ -17,10 +17,10 @@ else:
     HAS_TREE_SITTER = True
 
 if HAS_TREE_SITTER:
-    from extract.tree_sitter_extractor import extract_functions, parse_string
+    from analysis.parsing import extract_functions, parse_string
     from refcount.analyzer import load_refcount_semantics
-    from refcount.ownership import BORROWED, ESCAPED, OWNED, RETURNED, STOLEN
-    from refcount.ownership_flow import analyze_function_ownership
+    from refcount.ownership_state import BORROWED, ESCAPED, OWNED, RETURNED, STOLEN
+    from refcount.ownership_transfer import analyze_function_ownership
 else:
     extract_functions = None
     parse_string = None

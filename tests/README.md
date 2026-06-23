@@ -1,4 +1,4 @@
-# test
+# tests
 
 Tests and demo inputs for `py-cext-bugs`.
 
@@ -11,11 +11,11 @@ Useful files:
 Run tests:
 
 ```bash
-PYTHONPATH=py-cext-bugs python -m unittest discover -s py-cext-bugs/test -p 'test_*.py'
+PYTHONPATH=py-cext-bugs python -m unittest discover -s py-cext-bugs/tests -p 'test_*.py'
 ```
 
 Generate demo JSON:
 
 ```bash
-python py-cext-bugs/main.py refcount py-cext-bugs/test/demo_refcount_cases.c
+python py-cext-bugs/cli.py refcount py-cext-bugs/tests/demo_refcount_cases.c
 ```
