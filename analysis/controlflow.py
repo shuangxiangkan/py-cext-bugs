@@ -1,9 +1,11 @@
-"""Small intraprocedural control-flow graph builder for C functions.
+"""Small intraprocedural control-flow graph builder for C/C++ functions.
 
 The graph is statement-level, not compiler-grade. It is meant for analyzers
 that need common C extension control flow: sequential statements, if/else,
-while/for/do loops (with break/continue), return, goto, and labels. A
-``switch`` is treated as an opaque single node; its body is not expanded.
+while/for/do loops and C++ range-for (with break/continue), return, goto, and
+labels. C++ try/catch is modeled as a branch (normal path runs the try body, an
+exception path runs a handler). A ``switch`` is treated as an opaque single
+node; its body is not expanded.
 """
 
 from dataclasses import dataclass, field
@@ -174,8 +176,15 @@ class _CFGBuilder:
             return self._build_goto(statement, incoming)
         if statement.type == "return_statement":
             return self._build_return(statement, incoming)
-        if statement.type in ("while_statement", "for_statement", "do_statement"):
+        if statement.type in (
+            "while_statement",
+            "for_statement",
+            "do_statement",
+            "for_range_loop",
+        ):
             return self._build_loop(statement, incoming)
+        if statement.type == "try_statement":
+            return self._build_try(statement, incoming)
         if statement.type == "break_statement":
             return self._build_break(statement, incoming)
         if statement.type == "continue_statement":
@@ -252,6 +261,39 @@ class _CFGBuilder:
 
         self.loop_stack.pop()
         return [(header_id, "false")] + context.break_exits
+
+    def _build_try(
+        self,
+        statement: tree_sitter.Node,
+        incoming: list[tuple[int, str]],
+    ) -> list[tuple[int, str]]:
+        # Model try/catch as a branch: the normal path runs the try body, while
+        # an exception path skips it and runs a handler. This captures the main
+        # refcount hazard -- cleanup in the try body skipped when something
+        # throws -- without adding a throw edge after every statement. It is an
+        # approximation (a throw mid-body partially executes the try), which
+        # suits a candidate-bug heuristic.
+        node_id = self._add_node("try", statement)
+        self._connect(incoming, node_id)
+
+        body = statement.child_by_field_name("body")
+        if body is not None:
+            exits = self._build_statement(body, [(node_id, "normal")])
+        else:
+            exits = [(node_id, "normal")]
+
+        for child in statement.children:
+            if child.type != "catch_clause":
+                continue
+            catch_body = child.child_by_field_name("body")
+            if catch_body is not None:
+                exits = exits + self._build_statement(
+                    catch_body, [(node_id, "exception")]
+                )
+            else:
+                exits = exits + [(node_id, "exception")]
+
+        return exits
 
     def _build_break(
         self,

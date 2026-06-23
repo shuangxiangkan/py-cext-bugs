@@ -18,10 +18,17 @@ else:
 
 if HAS_TREE_SITTER:
     from analysis.controlflow import build_function_cfg
-    from analysis.parsing import extract_functions, parse_string
+    from analysis.parsing import (
+        extract_functions,
+        is_cpp_available,
+        parse_bytes_for_file,
+        parse_string,
+    )
 else:
     build_function_cfg = None
     extract_functions = None
+    is_cpp_available = None
+    parse_bytes_for_file = None
     parse_string = None
 
 
@@ -367,6 +374,85 @@ class TestLoops(unittest.TestCase):
         succ_kinds = {edge.kind for edge in cfg.successors(loop_id)}
         self.assertIn("back", succ_kinds)
         self.assertIn("false", succ_kinds)
+
+
+@unittest.skipUnless(
+    HAS_TREE_SITTER and is_cpp_available and is_cpp_available(),
+    "tree-sitter-cpp is required for C++ control-flow tests",
+)
+class TestCppControlFlow(unittest.TestCase):
+    """Test C++-specific control flow: range-for and try/catch."""
+
+    def _build(self, code, name):
+        source_bytes = code.encode("utf-8")
+        tree = parse_bytes_for_file(source_bytes, Path("sample.cpp"))
+        functions = extract_functions(tree, source_bytes)
+        func = next(f for f in functions if f["name"] == name)
+        return build_function_cfg(func, source_bytes)
+
+    def test_range_for_is_a_loop_with_body_expanded(self):
+        code = (
+            "PyObject *demo(PyObject *items)\n"
+            "{\n"
+            "    PyObject *acc = PyList_New(0);\n"
+            "    for (auto v : items) {\n"
+            "        Py_DECREF(acc);\n"
+            "        break;\n"
+            "    }\n"
+            "    return acc;\n"
+            "}\n"
+        )
+        cfg = self._build(code, "demo")
+
+        loop_nodes = [node for node in cfg.nodes if node.kind == "loop"]
+        self.assertEqual(len(loop_nodes), 1)
+        header = loop_nodes[0]
+        # Range-for may iterate zero times, so the header has a false exit edge.
+        self.assertIn("false", {edge.kind for edge in cfg.successors(header.id)})
+        # The body statement is expanded (not opaque): the DECREF is its own
+        # node. The loop header's compact text also contains the body text, so
+        # restrict to statement nodes to find the expanded statement itself.
+        decref = [
+            node
+            for node in cfg.nodes
+            if node.kind == "statement" and "Py_DECREF(acc)" in node.text
+        ]
+        self.assertEqual(len(decref), 1)
+        # break is a loop exit.
+        self.assertEqual([n.kind for n in cfg.nodes if n.kind == "break"], ["break"])
+
+    def test_try_catch_is_a_branch(self):
+        code = (
+            "PyObject *demo(PyObject *self)\n"
+            "{\n"
+            "    try {\n"
+            "        do_work();\n"
+            "    } catch (const std::exception &e) {\n"
+            "        return nullptr;\n"
+            "    }\n"
+            "    return self;\n"
+            "}\n"
+        )
+        cfg = self._build(code, "demo")
+
+        try_nodes = [node for node in cfg.nodes if node.kind == "try"]
+        self.assertEqual(len(try_nodes), 1)
+        try_id = try_nodes[0].id
+        # The try node branches into a normal path and an exception path.
+        edge_kinds = {edge.kind for edge in cfg.successors(try_id)}
+        self.assertIn("normal", edge_kinds)
+        self.assertIn("exception", edge_kinds)
+        # The catch body is expanded: its return reaches the exit.
+        catch_return = [
+            node
+            for node in cfg.nodes
+            if node.kind == "return" and "nullptr" in node.text
+        ]
+        self.assertEqual(len(catch_return), 1)
+        self.assertIn(
+            cfg.exit_id,
+            {edge.target for edge in cfg.successors(catch_return[0].id)},
+        )
 
 
 if __name__ == "__main__":
