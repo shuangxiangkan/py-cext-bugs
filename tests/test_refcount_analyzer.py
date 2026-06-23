@@ -114,6 +114,20 @@ macro_wrapped(PyObject *self, PyObject *args)
 """
 
 
+CASTED_RETURN = """\
+#include <Python.h>
+
+static PyObject *
+casted_return(PyObject *self, PyObject *args)
+{
+    PyObject *result = PyList_New(0);
+    if (result == NULL)
+        return NULL;
+    return (PyObject *)result;
+}
+"""
+
+
 SETITEM_DOUBLE_FREE = """\
 #include <Python.h>
 
@@ -131,6 +145,32 @@ setitem_double_free(PyObject *self, PyObject *args)
     }
 
     if (PyList_SetItem(list, 0, item) < 0) {
+        Py_DECREF(item);  /* BUG: double-free -- SetItem always steals */
+        Py_DECREF(list);
+        return NULL;
+    }
+    return list;
+}
+"""
+
+
+SETITEM_CASTED_DOUBLE_FREE = """\
+#include <Python.h>
+
+static PyObject *
+setitem_casted_double_free(PyObject *self, PyObject *args)
+{
+    PyObject *list = PyList_New(1);
+    if (list == NULL)
+        return NULL;
+
+    PyObject *item = PyLong_FromLong(42);
+    if (item == NULL) {
+        Py_DECREF(list);
+        return NULL;
+    }
+
+    if (PyList_SetItem(list, 0, (PyObject * const)item) < 0) {
         Py_DECREF(item);  /* BUG: double-free -- SetItem always steals */
         Py_DECREF(list);
         return NULL;
@@ -284,6 +324,16 @@ helper_func(PyObject *self, PyObject *args)
             self.assertEqual(result["files_analyzed"], 2)
             self.assertGreaterEqual(result["functions_analyzed"], 3)
 
+    def test_casted_return_is_not_reported_as_leak(self):
+        with TempSourceTree({"casted.c": CASTED_RETURN}) as root:
+            result = refcounts.analyze_path(root / "casted.c")
+            leaks = [
+                finding
+                for finding in result["findings"]
+                if finding["type"] in ("potential_leak", "potential_leak_on_path")
+            ]
+            self.assertEqual(leaks, [])
+
 
 @unittest.skipUnless(
     HAS_TREE_SITTER,
@@ -305,6 +355,17 @@ class TestStolenRefDoubleFree(unittest.TestCase):
             self.assertEqual(finding["confidence"], "high")
             self.assertEqual(finding["variable"], "item")
             self.assertEqual(finding["steal_api"], "PyList_SetItem")
+
+    def test_detects_casted_setitem_double_free(self):
+        with TempSourceTree({"df.c": SETITEM_CASTED_DOUBLE_FREE}) as root:
+            result = refcounts.analyze_path(root / "df.c")
+            double_frees = [
+                finding
+                for finding in result["findings"]
+                if finding["type"] == "stolen_ref_double_free"
+            ]
+            self.assertTrue(double_frees)
+            self.assertEqual(double_frees[0]["variable"], "item")
 
     def test_correct_setitem_no_finding(self):
         with TempSourceTree({"ok.c": SETITEM_CORRECT}) as root:

@@ -5,6 +5,7 @@ from dataclasses import dataclass
 
 from analysis.controlflow import ControlFlowGraph, build_function_cfg
 from analysis.dataflow import DataFlowResult, analyze_forward
+from analysis.parsing import strip_casts
 from refcount.ownership_state import (
     BORROWED,
     ESCAPED,
@@ -106,6 +107,7 @@ def _transfer_statement(
     state: OwnershipState,
     semantics,
 ) -> OwnershipState:
+    text = strip_casts(text)
     assigned = _assigned_call(text)
     if assigned:
         variable, api, arguments = assigned
@@ -141,6 +143,7 @@ def _transfer_condition_calls(
 ) -> OwnershipState:
     # References can be acquired inside a condition, e.g.
     # ``if ((obj = PyList_New(0)) == NULL)`` or ``if (!(obj = PyDict_New()))``.
+    condition = strip_casts(condition)
     for variable, api, _ in _assigned_calls(condition):
         state = _mark_acquired(state, variable, api, line, semantics)
     for api, arguments in _calls(condition):
@@ -339,21 +342,22 @@ def _return_value(text: str) -> str | None:
     if not match:
         return None
     value = match.group(1)
-    return value.strip() if value else None
+    return strip_casts(value).strip() if value else None
 
 
 def _first_simple_arg(arguments: str) -> str | None:
     args = [arg.strip() for arg in arguments.split(",")]
     if not args:
         return None
-    return args[0] if _is_simple_name(args[0]) else None
+    arg = strip_casts(args[0]).strip()
+    return arg if _is_simple_name(arg) else None
 
 
 def _last_simple_arg(arguments: str) -> str | None:
     args = [arg.strip() for arg in arguments.split(",")]
     if not args:
         return None
-    arg = re.sub(r"\([^)]+\)\s*", "", args[-1]).strip()
+    arg = strip_casts(args[-1]).strip()
     return arg if _is_simple_name(arg) else None
 
 

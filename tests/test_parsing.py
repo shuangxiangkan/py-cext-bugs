@@ -22,12 +22,14 @@ if HAS_TREE_SITTER:
         is_cpp_available,
         parse_bytes_for_file,
         parse_string,
+        strip_casts,
     )
 else:
     extract_functions = None
     is_cpp_available = None
     parse_bytes_for_file = None
     parse_string = None
+    strip_casts = None
 
 
 @unittest.skipUnless(
@@ -79,6 +81,40 @@ struct S {
             [function["name"] for function in functions],
             ["cfunc", "nfunc", "method", "smethod"],
         )
+
+
+@unittest.skipUnless(
+    HAS_TREE_SITTER,
+    "tree-sitter is required to import analysis.parsing",
+)
+class TestStripCasts(unittest.TestCase):
+    """Test cast normalization used by the ownership matchers."""
+
+    def test_strips_c_pointer_casts(self):
+        self.assertEqual(strip_casts("(PyObject *)obj").strip(), "obj")
+        self.assertEqual(strip_casts("(PyObject*)obj").strip(), "obj")
+        self.assertEqual(strip_casts("(PyObject **)&arr").strip(), "&arr")
+
+    def test_strips_cpp_named_casts(self):
+        self.assertEqual(
+            strip_casts("static_cast<PyObject*>(PyList_New(0))").strip(),
+            "PyList_New(0)",
+        )
+        self.assertEqual(
+            strip_casts("reinterpret_cast<PyObject *>(p->base)").strip(),
+            "p->base",
+        )
+        # Nested template arguments inside the cast type.
+        self.assertEqual(
+            strip_casts("static_cast<std::map<int,int>*>(m)").strip(), "m"
+        )
+
+    def test_leaves_non_casts_intact(self):
+        # Grouping, multiplication, value casts, and plain calls are untouched.
+        self.assertEqual(strip_casts("(a) * (b)"), "(a) * (b)")
+        self.assertEqual(strip_casts("a * b"), "a * b")
+        self.assertEqual(strip_casts("(int)n"), "(int)n")
+        self.assertEqual(strip_casts("func(x, y)"), "func(x, y)")
 
 
 if __name__ == "__main__":

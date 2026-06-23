@@ -28,6 +28,7 @@ from analysis.parsing import (
     find_return_statements,
     get_node_text,
     parse_bytes_for_file,
+    strip_casts,
 )
 
 
@@ -111,14 +112,14 @@ def _var_in_text(var: str, text: str) -> bool:
 
 
 def _first_arg(arguments_text: str) -> str:
-    return arguments_text.split(",")[0].strip()
+    return strip_casts(arguments_text.split(",")[0]).strip()
 
 
 def _last_simple_arg(arguments_text: str) -> str | None:
     args = [arg.strip() for arg in arguments_text.split(",")]
     if not args:
         return None
-    arg = re.sub(r"\([^)]+\)\s*", "", args[-1]).strip()
+    arg = strip_casts(args[-1]).strip()
     return arg if re.match(r"^\w+$", arg) else None
 
 
@@ -154,7 +155,7 @@ def check_potential_leaks(func, source_bytes: bytes, semantics: RefcountSemantic
     all_calls.sort(key=lambda call: call["start_byte"])
 
     return_values = {
-        ret["value_text"]
+        strip_casts(ret["value_text"]).strip()
         for ret in find_return_statements(body, source_bytes)
         if ret["value_text"]
     }

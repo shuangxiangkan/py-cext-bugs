@@ -749,3 +749,57 @@ def strip_comments(source: str) -> str:
     # Remove line comments.
     source = re.sub(r"//[^\n]*", " ", source)
     return source
+
+
+_NAMED_CAST_RE = re.compile(r"\b(?:static|reinterpret|const|dynamic)_cast\s*<")
+_C_POINTER_CAST_RE = re.compile(
+    r"\(\s*[A-Za-z_][\w\s:<>,]*?\*+(?:\s+(?:const|volatile|restrict))*\s*\)"
+)
+
+
+def strip_casts(text: str) -> str:
+    """Remove C/C++ cast syntax so downstream matchers see the inner expression.
+
+    Handles C++ named casts (``static_cast<T>(x)`` -> ``x``, plus
+    ``reinterpret_cast``/``const_cast``/``dynamic_cast``) and C-style pointer
+    casts (``(PyObject *)x`` -> ``x``). Only pointer C-casts are stripped, so
+    grouping parentheses and value casts like ``(int)`` are left intact.
+
+    This is text-level normalization for the regex-based ownership matchers;
+    without it ``return (PyObject *)obj;`` looks like a non-trivial expression
+    and ``obj`` is falsely reported as leaked instead of returned.
+    """
+    return _C_POINTER_CAST_RE.sub("", _remove_named_casts(text))
+
+
+def _remove_named_casts(text: str) -> str:
+    """Replace ``CAST<T>(expr)`` with ``expr`` for the four C++ named casts."""
+    while True:
+        match = _NAMED_CAST_RE.search(text)
+        if not match:
+            return text
+        # Skip the balanced <...> template argument list.
+        index = match.end()
+        depth = 1
+        while index < len(text) and depth:
+            if text[index] == "<":
+                depth += 1
+            elif text[index] == ">":
+                depth -= 1
+            index += 1
+        while index < len(text) and text[index].isspace():
+            index += 1
+        if index >= len(text) or text[index] != "(":
+            return text  # malformed; stop rather than loop forever
+        # Extract the balanced (expr) and splice it in place of the whole cast.
+        start = index + 1
+        end = start
+        depth = 1
+        while end < len(text) and depth:
+            if text[end] == "(":
+                depth += 1
+            elif text[end] == ")":
+                depth -= 1
+            end += 1
+        inner = text[start : end - 1]
+        text = text[: match.start()] + inner + text[end:]
