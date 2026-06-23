@@ -13,6 +13,21 @@ It has three main layers:
 - `refcount/`: CPython C API ownership/refcount analysis.
 - `tests/`: demo C cases and unit tests.
 
+## Requirements
+
+```bash
+pip install -r requirements.txt
+```
+
+This installs `tree-sitter`, `tree-sitter-c`, and `tree-sitter-cpp`. C++ files
+(`.cpp`, `.cc`, `.cxx`, `.hpp`) are scanned by default. If `tree-sitter-cpp` is
+missing, C++ sources are skipped (not mis-parsed) and a warning is emitted.
+
+C++ support covers C-style function bodies plus inline class/struct methods and
+`extern "C"`/`namespace` blocks. It does **not** model C++ ownership semantics
+such as RAII, smart pointers, or pybind11/nanobind `py::object`, so heavily
+RAII-based extensions will produce more false positives.
+
 Run refcount analysis:
 
 ```bash

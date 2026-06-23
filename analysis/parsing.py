@@ -6,8 +6,11 @@ It intentionally avoids project-specific API or framework semantics;
 callers can layer domain-specific classification on top of the extracted
 functions, declarations, calls, assignments, returns, and struct members.
 
-Requires: pip install tree-sitter tree-sitter-c
-Optional: pip install tree-sitter-cpp (for C++ file support)
+Requires: pip install tree-sitter tree-sitter-c tree-sitter-cpp
+
+tree-sitter-cpp is a standard dependency (see requirements.txt), so C++ files
+are parsed by default. If it is missing the layer degrades gracefully: C++
+sources are skipped with a warning rather than mis-parsed with the C grammar.
 """
 
 import json
@@ -69,7 +72,7 @@ def _get_cpp_parser() -> tree_sitter.Parser:
 
 def get_parser_for_file(filepath: Path) -> tree_sitter.Parser:
     """Return the appropriate parser for a file based on its extension."""
-    if filepath.suffix in CPP_EXTENSIONS and _CPP_AVAILABLE:
+    if filepath.suffix in CPP_EXTENSIONS:
         return _get_cpp_parser()
     return _parser
 
@@ -81,9 +84,9 @@ def parse_bytes_for_file(source_bytes: bytes, filepath: Path) -> tree_sitter.Tre
 
 
 def parse_file(path: Path) -> tree_sitter.Tree:
-    """Parse a C source file and return the Tree-sitter syntax tree."""
+    """Parse a source file and return the Tree-sitter syntax tree."""
     source_bytes = path.read_bytes()
-    return _parser.parse(source_bytes)
+    return parse_bytes_for_file(source_bytes, path)
 
 
 def parse_string(source: str) -> tree_sitter.Tree:
@@ -167,6 +170,40 @@ def _get_function_declarator(node: tree_sitter.Node) -> tree_sitter.Node | None:
     return None
 
 
+# Node types whose bodies host function definitions at (effectively) file
+# scope: extern "C" {}, namespaces, and C++ class/struct bodies (inline
+# methods). Descending these keeps C behavior unchanged because a C struct body
+# never contains a function_definition.
+_FUNCTION_HOST_TYPES = frozenset(
+    {
+        "linkage_specification",
+        "namespace_definition",
+        "class_specifier",
+        "struct_specifier",
+    }
+)
+
+
+def _collect_function_definitions(
+    nodes, out: list[tree_sitter.Node]
+) -> None:
+    """Collect function_definition nodes from a list of sibling nodes.
+
+    Recurses into extern "C", namespace, and C++ class/struct bodies so that
+    inline methods (including those nested inside a namespace) are included.
+    """
+    for node in nodes:
+        if node.type == "function_definition":
+            out.append(node)
+        elif node.type in _FUNCTION_HOST_TYPES:
+            body = node.child_by_field_name("body")
+            if body is not None and body.type == "function_definition":
+                out.append(body)
+            else:
+                children = body.children if body is not None else node.children
+                _collect_function_definitions(children, out)
+
+
 def extract_functions(tree: tree_sitter.Tree, source_bytes: bytes) -> list[dict]:
     """Extract all function definitions from a parse tree.
 
@@ -184,18 +221,10 @@ def extract_functions(tree: tree_sitter.Tree, source_bytes: bytes) -> list[dict]
     functions = []
     root = tree.root_node
 
-    # Collect top-level nodes, descending into extern "C" {} and namespace {}
-    # blocks which wrap function definitions in C++ files.
-    top_nodes = []
-    for node in root.children:
-        if node.type in ("linkage_specification", "namespace_definition"):
-            body = node.child_by_field_name("body")
-            if body:
-                top_nodes.extend(body.children)
-            else:
-                top_nodes.extend(node.children)
-        else:
-            top_nodes.append(node)
+    # Collect function definitions at file scope, descending into extern "C",
+    # namespace, and C++ class/struct bodies (which wrap inline methods).
+    top_nodes: list[tree_sitter.Node] = []
+    _collect_function_definitions(root.children, top_nodes)
 
     for node in top_nodes:
         if node.type != "function_definition":

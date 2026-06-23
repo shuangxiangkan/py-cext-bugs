@@ -7,6 +7,7 @@ from pathlib import Path
 from .parsing import (
     ALL_SOURCE_EXTENSIONS,
     C_EXTENSIONS,
+    CPP_EXTENSIONS,
     is_cpp_available,
 )
 
@@ -56,6 +57,37 @@ def source_extensions(*, include_cpp: bool | None = None) -> frozenset[str]:
     if include_cpp is None:
         include_cpp = is_cpp_available()
     return ALL_SOURCE_EXTENSIONS if include_cpp else C_EXTENSIONS
+
+
+def first_unscannable_cpp_file(
+    root: Path,
+    *,
+    exclude_dirs: frozenset[str] = EXCLUDE_DIRS,
+) -> Path | None:
+    """Return the first C++ source that discovery will skip, or None.
+
+    When tree-sitter-cpp is not installed, ``discover_source_files`` omits
+    ``.cpp``/``.cc``/``.cxx``/``.hpp`` files (parsing them with the C grammar
+    would produce garbage). This helper lets callers surface a warning instead
+    of silently skipping C++ sources. It returns at the first match without
+    materializing or sorting the whole tree, so it is cheap even on large
+    trees. Returns None when the C++ parser is available.
+    """
+    if is_cpp_available():
+        return None
+    if root.is_file():
+        return root if root.suffix in CPP_EXTENSIONS else None
+    for path in root.rglob("*"):
+        if not path.is_file() or path.suffix not in CPP_EXTENSIONS:
+            continue
+        try:
+            parts = set(path.relative_to(root).parts)
+        except ValueError:
+            continue
+        if parts & exclude_dirs:
+            continue
+        return path
+    return None
 
 
 def discover_source_files(

@@ -15,7 +15,11 @@ from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 
-from analysis.sources import discover_source_files, find_project_root
+from analysis.sources import (
+    discover_source_files,
+    find_project_root,
+    first_unscannable_cpp_file,
+)
 from refcount.ownership_transfer import analyze_function_ownership
 from analysis.parsing import (
     extract_functions,
@@ -562,8 +566,22 @@ def analyze_path(
 
     findings = []
     skipped = []
+    warnings = []
     functions_analyzed = 0
     files_analyzed = 0
+
+    # C++ files are scanned by default, but only when tree-sitter-cpp is
+    # installed. If it is missing, surface a warning instead of silently
+    # skipping the C++ sources discovery dropped.
+    unscannable_cpp = first_unscannable_cpp_file(target_path)
+    if unscannable_cpp is not None:
+        message = (
+            "tree-sitter-cpp is not installed; C++ sources such as "
+            f"{unscannable_cpp} were skipped. Install it with "
+            "'pip install tree-sitter-cpp' to scan C++ files."
+        )
+        warnings.append(message)
+        print(message, file=sys.stderr)
 
     source_files = _source_files_to_scan(target_path)
     if max_files:
@@ -603,6 +621,7 @@ def analyze_path(
             "by_confidence": dict(by_confidence),
         },
         "skipped_files": skipped,
+        "warnings": warnings,
     }
 
 

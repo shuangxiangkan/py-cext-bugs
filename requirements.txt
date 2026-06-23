@@ -1,0 +1,8 @@
+# Runtime dependencies for py-cext-bugs.
+#
+# tree-sitter-cpp is a standard dependency (not optional): C/C++ extensions
+# frequently ship .cpp/.cc sources, and parsing them with the C grammar would
+# produce garbage. With this installed, C++ files are scanned by default.
+tree-sitter>=0.23
+tree-sitter-c>=0.23
+tree-sitter-cpp>=0.23
