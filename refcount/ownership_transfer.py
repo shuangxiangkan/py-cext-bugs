@@ -108,6 +108,21 @@ def _transfer_statement(
     semantics,
 ) -> OwnershipState:
     text = strip_casts(text)
+    wrapper = _wrapper_constructed_call(text, semantics)
+    if wrapper:
+        variable, api = wrapper
+        if api in semantics.new_ref_apis:
+            return state.mark(variable, RELEASED, line=line, api=api)
+        if api in semantics.borrowed_ref_apis:
+            return state.mark(variable, BORROWED, line=line, api=api)
+
+    wrapper_action = _wrapper_method_call(text, semantics)
+    if wrapper_action:
+        variable, action, method = wrapper_action
+        if action == "release":
+            return state.mark_reference(variable, RELEASED, line=line, api=method)
+        return state
+
     assigned = _assigned_call(text)
     if assigned:
         variable, api, arguments = assigned
@@ -246,6 +261,58 @@ def _assigned_call(text: str) -> tuple[str, str, str] | None:
         return None
     api, arguments = call
     return variable, api, arguments
+
+
+def _wrapper_constructed_call(text: str, semantics) -> tuple[str, str] | None:
+    """Return ``(wrapper_var, api)`` for ``OwnedWrapper var(PyNewRef())``.
+
+    Recognizes the three initialization syntaxes ``var(expr)``, ``var{expr}``,
+    and copy-init ``var = expr``.
+    """
+    text = text.strip().rstrip(";")
+    wrapper_types = "|".join(re.escape(name) for name in semantics.owned_wrapper_types)
+    if not wrapper_types:
+        return None
+    match = re.match(
+        rf"^(?:const\s+)?(?:[\w:]+::)?({wrapper_types})\s+([A-Za-z_]\w*)\s*"
+        r"(?:\((.*)\)|\{(.*)\}|=\s*(.*))$",
+        text,
+    )
+    if not match:
+        return None
+    arguments = (match.group(3) or match.group(4) or match.group(5) or "").strip()
+    api = _first_known_api_call(arguments, semantics)
+    if not api:
+        return None
+    return match.group(2), api
+
+
+def _wrapper_method_call(text: str, semantics) -> tuple[str, str, str] | None:
+    """Return wrapper method ownership effect for ``obj.release()``-style calls."""
+    text = text.strip().rstrip(";")
+    match = re.match(r"^([A-Za-z_]\w*)\s*(?:->|\.)\s*([A-Za-z_]\w*)\s*\((.*)\)$", text)
+    if not match:
+        return None
+    variable, method, _arguments = match.groups()
+    if method in semantics.wrapper_release_methods:
+        return variable, "release", method
+    if method in semantics.wrapper_borrow_methods:
+        return variable, "borrow", method
+    return None
+
+
+def _first_known_api_call(text: str, semantics) -> str | None:
+    """Return the first known ownership API call inside a small expression."""
+    call = _simple_call(text)
+    if call:
+        api, _arguments = call
+        if api in semantics.new_ref_apis or api in semantics.borrowed_ref_apis:
+            return api
+    known_apis = semantics.new_ref_apis | semantics.borrowed_ref_apis
+    for api in sorted(known_apis, key=len, reverse=True):
+        if re.search(r"\b" + re.escape(api) + r"\s*\(", text):
+            return api
+    return None
 
 
 def _assigned_name(text: str, state: OwnershipState) -> tuple[str, str] | None:

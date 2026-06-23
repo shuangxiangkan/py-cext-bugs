@@ -23,10 +23,11 @@ This installs `tree-sitter`, `tree-sitter-c`, and `tree-sitter-cpp`. C++ files
 (`.cpp`, `.cc`, `.cxx`, `.hpp`) are scanned by default. If `tree-sitter-cpp` is
 missing, C++ sources are skipped (not mis-parsed) and a warning is emitted.
 
-C++ support covers C-style function bodies plus inline class/struct methods and
-`extern "C"`/`namespace` blocks. It does **not** model C++ ownership semantics
-such as RAII, smart pointers, or pybind11/nanobind `py::object`, so heavily
-RAII-based extensions will produce more false positives.
+C++ support covers C-style function bodies plus inline class/struct methods,
+`extern "C"`/`namespace` blocks, range-for, basic try/catch control flow, common
+casts, and configurable RAII wrapper handoff for new-reference APIs. It does
+**not** model full C++ object lifetime semantics such as move/copy behavior,
+class-member ownership, smart pointers, or pybind11/nanobind `py::object`.
 
 Run refcount analysis:
 

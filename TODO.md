@@ -103,7 +103,7 @@ Suggested implementation:
 
 ```text
 Pillow:   76 files, 1047 functions
-greenlet: 4 files, 26 functions
+greenlet: 4 files, 27 functions
 ```
 
 Future precision comparisons should keep file/function counts aligned before

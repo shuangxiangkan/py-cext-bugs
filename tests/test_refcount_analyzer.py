@@ -17,8 +17,10 @@ else:
     HAS_TREE_SITTER = True
 
 if HAS_TREE_SITTER:
+    from analysis.parsing import is_cpp_available
     import refcount.analyzer as refcounts
 else:
+    is_cpp_available = None
     refcounts = None
 from helpers import (
     EXTENSION_WITH_BUGS,
@@ -180,6 +182,26 @@ setitem_casted_double_free(PyObject *self, PyObject *args)
 """
 
 
+RAII_WRAPPER_REF = """\
+#include <Python.h>
+
+class NewReference {
+public:
+    explicit NewReference(PyObject *obj);
+    PyObject *borrow() const;
+};
+
+static PyObject *
+raii_capsule(void)
+{
+    const NewReference c_api_object(Require(PyCapsule_New(NULL, "demo", NULL)));
+    NewReference braced_object{PyCapsule_New(NULL, "demo2", NULL)};
+    NewReference copy_init_object = PyCapsule_New(NULL, "demo3", NULL);
+    return Py_NewRef(Py_None);
+}
+"""
+
+
 SETITEM_CORRECT = """\
 #include <Python.h>
 
@@ -323,6 +345,20 @@ helper_func(PyObject *self, PyObject *args)
             result = refcounts.analyze_path(root)
             self.assertEqual(result["files_analyzed"], 2)
             self.assertGreaterEqual(result["functions_analyzed"], 3)
+
+    @unittest.skipUnless(
+        HAS_TREE_SITTER and is_cpp_available(),
+        "tree-sitter-cpp is required for C++ RAII wrapper tests",
+    )
+    def test_raii_wrapper_constructor_suppresses_new_ref_leak(self):
+        with TempSourceTree({"raii.cpp": RAII_WRAPPER_REF}) as root:
+            result = refcounts.analyze_path(root / "raii.cpp")
+            leaks = [
+                finding
+                for finding in result["findings"]
+                if finding.get("api_call") == "PyCapsule_New"
+            ]
+            self.assertEqual(leaks, [])
 
     def test_casted_return_is_not_reported_as_leak(self):
         with TempSourceTree({"casted.c": CASTED_RETURN}) as root:

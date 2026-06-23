@@ -70,6 +70,11 @@ DEFAULT_RELEASE_APIS = frozenset({"Py_DECREF", "Py_XDECREF", "Py_CLEAR", "Py_SET
 DEFAULT_INCREF_APIS = frozenset({"Py_INCREF", "Py_XINCREF"})
 DEFAULT_IMMUTABLE_BORROWED_APIS = frozenset({"PyTuple_GetItem", "PyTuple_GET_ITEM"})
 DEFAULT_ALWAYS_STEAL_APIS = frozenset({"PyList_SetItem", "PyTuple_SetItem"})
+DEFAULT_OWNED_WRAPPER_TYPES = frozenset()
+DEFAULT_WRAPPER_BORROW_METHODS = frozenset({"borrow", "borrow_o", "get"})
+DEFAULT_WRAPPER_RELEASE_METHODS = frozenset(
+    {"release", "relinquish_ownership", "detach", "DISOWN", "CLEAR"}
+)
 
 
 @dataclass(frozen=True)
@@ -84,6 +89,9 @@ class RefcountSemantics:
     executing_apis: frozenset[str] = DEFAULT_EXECUTING_APIS
     immutable_borrowed_apis: frozenset[str] = DEFAULT_IMMUTABLE_BORROWED_APIS
     always_steal_apis: frozenset[str] = DEFAULT_ALWAYS_STEAL_APIS
+    owned_wrapper_types: frozenset[str] = DEFAULT_OWNED_WRAPPER_TYPES
+    wrapper_borrow_methods: frozenset[str] = DEFAULT_WRAPPER_BORROW_METHODS
+    wrapper_release_methods: frozenset[str] = DEFAULT_WRAPPER_RELEASE_METHODS
 
     @property
     def python_executing_apis(self) -> frozenset[str]:
@@ -104,6 +112,15 @@ def load_refcount_semantics(path: str | Path | None = None) -> RefcountSemantics
         borrowed_ref_apis=frozenset(data.get("borrowed_ref_apis", [])),
         steal_ref_apis=frozenset(data.get("steal_ref_apis", [])),
         incref_apis=frozenset(data.get("incref_apis", DEFAULT_INCREF_APIS)),
+        owned_wrapper_types=frozenset(
+            data.get("owned_wrapper_types", DEFAULT_OWNED_WRAPPER_TYPES)
+        ),
+        wrapper_borrow_methods=frozenset(
+            data.get("wrapper_borrow_methods", DEFAULT_WRAPPER_BORROW_METHODS)
+        ),
+        wrapper_release_methods=frozenset(
+            data.get("wrapper_release_methods", DEFAULT_WRAPPER_RELEASE_METHODS)
+        ),
     )
 
 
@@ -138,6 +155,27 @@ def _return_is_guarded_null_check(return_node, var: str, source_bytes: bytes) ->
                 or re.search(r"\bNULL\s*==\s*" + escaped + r"\b", condition_text)
                 or re.search(r"!\s*" + escaped + r"\b", condition_text)
             )
+        node = node.parent
+    return False
+
+
+def _is_owned_wrapper_constructor(call_node, var: str, source_bytes: bytes, semantics) -> bool:
+    """Return true if a new-ref call is immediately passed into an RAII wrapper."""
+    wrapper_types = getattr(semantics, "owned_wrapper_types", frozenset())
+    if not wrapper_types:
+        return False
+    wrapper_pattern = "|".join(re.escape(name) for name in wrapper_types)
+    # The wrapper takes ownership via any of the three init syntaxes:
+    # ``var(expr)``, ``var{expr}``, or copy-init ``var = expr``.
+    pattern = re.compile(
+        rf"\b(?:const\s+)?(?:[\w:]+::)?(?:{wrapper_pattern})\s+"
+        + re.escape(var)
+        + r"\s*[\(\{=]"
+    )
+    node = call_node
+    while node and node.type != "function_definition":
+        if node.type == "declaration":
+            return bool(pattern.search(get_node_text(node, source_bytes)))
         node = node.parent
     return False
 
@@ -179,6 +217,8 @@ def check_potential_leaks(func, source_bytes: bytes, semantics: RefcountSemantic
             continue
         var = find_assigned_variable(call["node"], source_bytes)
         if not var:
+            continue
+        if _is_owned_wrapper_constructor(call["node"], var, source_bytes, semantics):
             continue
         if var not in released_vars and var not in return_values and var not in stolen_vars:
             findings.append(

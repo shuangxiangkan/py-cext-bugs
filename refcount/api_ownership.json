@@ -69,5 +69,24 @@
     "PyTuple_SetItem", "PyTuple_SET_ITEM",
     "PyModule_AddObject",
     "PyCell_SET"
+  ],
+  "owned_wrapper_types": [
+    "OwnedObject",
+    "NewReference",
+    "NewDictReference",
+    "NewListReference",
+    "NewTupleReference"
+  ],
+  "wrapper_borrow_methods": [
+    "borrow",
+    "borrow_o",
+    "get"
+  ],
+  "wrapper_release_methods": [
+    "release",
+    "relinquish_ownership",
+    "detach",
+    "DISOWN",
+    "CLEAR"
   ]
 }

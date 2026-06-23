@@ -65,6 +65,10 @@ of CPython ownership patterns:
   returning, stealing, or escaping.
 - Assignments to fields, globals, and array elements mark the right-hand
   reference as `escaped`.
+- Configured RAII wrapper constructors, such as
+  `NewReference obj(PyCapsule_New(...));`, are treated as taking ownership of
+  the new reference so the raw API call is not reported as a leak. Wrapper type
+  and method names are configured in `api_ownership.json`.
 
 ## Findings
 
