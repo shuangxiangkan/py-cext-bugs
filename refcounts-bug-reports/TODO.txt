@@ -1,0 +1,8 @@
+report没让claude检查：
+numexpr 
+pyodbc
+pygit2
+pycairo
+py-tree-sitter
+duckdb-python
+python-ldap
