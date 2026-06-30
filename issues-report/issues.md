@@ -6,10 +6,10 @@
 
  ## pyodbc
  - https://github.com/mkleehammer/pyodbc/issues/1502
+ - https://github.com/mkleehammer/pyodbc/issues/1503  2个bug
 
 
 
 # 写好了issue但是没有报的：
 
-  - py-cext-bugs/issues-report/pyodbc/drivers-detach-leak-and-double-free.md
-  - py-cext-bugs/issues-report/yappi/del-pit-name-modname-ref-leak.md
+  - py-cext-bugs/issues-report/yappi/del-pit-name-modname-ref-leak.md 90%可能是的
