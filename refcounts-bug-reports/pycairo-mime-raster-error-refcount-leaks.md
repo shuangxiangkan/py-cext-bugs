@@ -1,10 +1,12 @@
-# pycairo: likely reference leaks in MIME data and raster callbacks
+# pycairo: reference leaks in text-to-glyph conversion, MIME data, and callbacks
 
 ## Summary
 
-`pycairo` has several likely CPython reference-counting leaks in its C extension
-code. The strongest candidates are ordinary runtime paths:
+`pycairo` has several CPython reference-counting leaks in its C extension
+code. The strongest findings are ordinary successful runtime paths:
 
+- `scaled_font_text_to_glyphs()` leaks one argument tuple for every glyph and,
+  when requested, every text cluster it converts.
 - `_raster_source_release_func()` leaks the return value of a Python release
   callback when the callback correctly returns `None`.
 - `surface_set_mime_data()` and `surface_get_mime_data()` create interned MIME
@@ -20,22 +22,75 @@ compatibility wrapper.
 - Project: `python-c-repos/pycairo`
 - Component: CPython C extension (`cairo/*.c`)
 - Category: CPython owned-reference leak / callback cleanup
-- Confidence: high for the raster callback leak, medium-high for the MIME
-  interned-string leaks and `new_type_args` leak
+- Confidence: high
 
 Scan results:
 
 | Tool | Files | Functions | Findings | Relevant findings |
 |---|---:|---:|---:|---|
 | `cext-review-toolkit` | 19 | 347 | 20 | `surface_set_mime_data`, `error_get_type_combined`, enum/tuple helper noise |
-| `py-cext-bugs` | 19 | 347 | 25 | `_raster_source_release_func`, `surface_set_mime_data`, `scaled_font_text_to_glyphs` noise |
+| `py-cext-bugs` | 19 | 347 | 25 | `_raster_source_release_func`, `surface_set_mime_data`, `scaled_font_text_to_glyphs` |
 
-Result files:
+## 1. `scaled_font_text_to_glyphs`: argument tuple leaks inside loops
 
-- `scan-results/pycairo-cext-review-toolkit-refcounts.json`
-- `scan-results/pycairo-py-cext-bugs-refcount.json`
+Current code in `cairo/font.c`:
 
-## 1. `_raster_source_release_func`: leaked callback result on successful `None` return
+```c
+for(i=0; i < num_glyphs; i++) {
+  cairo_glyph_t *glyph = &glyphs[i];
+  glyph_args = Py_BuildValue(
+    "(kdd)", glyph->index, glyph->x, glyph->y);
+  if (glyph_args == NULL)
+    goto error;
+  pyglyph = PyObject_Call(
+    (PyObject *)&PycairoGlyph_Type, glyph_args, NULL);
+  if (pyglyph == NULL) {
+    Py_DECREF (glyph_args);
+    goto error;
+  }
+  PyList_SET_ITEM (glyph_list, i, pyglyph);
+}
+```
+
+`Py_BuildValue()` returns a new owned reference. `PyObject_Call()` borrows its
+argument tuple and does not steal it. The failure branch decrefs `glyph_args`,
+but the normal successful branch inserts only `pyglyph` into the list and
+never releases `glyph_args`.
+
+The cluster loop has the same bug:
+
+```c
+cluster_args = Py_BuildValue(
+  "(ii)", cluster->num_bytes, cluster->num_glyphs);
+if (cluster_args == NULL)
+  goto error;
+pycluster = PyObject_Call(
+  (PyObject *)&PycairoTextCluster_Type, cluster_args, NULL);
+if (pycluster == NULL) {
+  Py_DECREF (cluster_args);
+  goto error;
+}
+PyList_SET_ITEM (cluster_list, i, pycluster);
+```
+
+Consequently, every successful `ScaledFont.text_to_glyphs()` call leaks one
+tuple per returned glyph and, with cluster output enabled, one additional
+tuple per returned cluster. This is deterministic and scales with the amount
+of converted text.
+
+Suggested fix at both sites:
+
+```c
+pyglyph = PyObject_Call(
+  (PyObject *)&PycairoGlyph_Type, glyph_args, NULL);
+Py_DECREF(glyph_args);
+if (pyglyph == NULL)
+  goto error;
+```
+
+Apply the equivalent ordering to `cluster_args`.
+
+## 2. `_raster_source_release_func`: leaked callback result on successful `None` return
 
 Current code in `cairo/pattern.c`:
 
@@ -86,7 +141,7 @@ return;
 Alternatively, use a shared success cleanup block that decrefs both `result`
 and `pysurface`.
 
-## 2. `surface_set_mime_data`: leaked `mime_intern`
+## 3. `surface_set_mime_data`: leaked `mime_intern`
 
 Current code in `cairo/surface.c`:
 
@@ -139,7 +194,7 @@ Every return path after `mime_intern` is created should decref it exactly once.
 Because `mime_intern` is also stored inside `user_data`, the tuple keeps its own
 reference.
 
-## 3. `surface_get_mime_data`: leaked `mime_intern`
+## 4. `surface_get_mime_data`: leaked `mime_intern`
 
 Current code:
 
@@ -181,7 +236,7 @@ Py_INCREF(obj);
 return obj;
 ```
 
-## 4. `error_get_type_combined`: leaked `new_type_args`
+## 5. `error_get_type_combined`: leaked `new_type_args`
 
 Current code in `cairo/error.c`:
 
@@ -222,8 +277,10 @@ Several scanner findings look like false positives after manual review:
   they are passed to `Py_BuildValue("(NNOO)", ...)`; the `N` format steals those
   new references.
 - `scaled_font_text_to_glyphs()` reports `glyph_list`, `cluster_list`, and
-  `flags`, but the successful clustered return uses `Py_BuildValue("(NNN)")`,
-  which transfers those references. Error paths also have a cleanup block.
+  `flags`; those specific references are transferred by
+  `Py_BuildValue("(NNN)")` or returned directly. In contrast, the
+  `glyph_args` and `cluster_args` references described above are genuine
+  leaks.
 - `int_enum_reduce()` reports `num`, but `Py_BuildValue("(O, (N))", ...)`
   transfers `num`.
 - The tuple/repr helpers in `glyph.c`, `rectangle.c`, `textcluster.c`, and
@@ -232,10 +289,12 @@ Several scanner findings look like false positives after manual review:
 
 ## Overall assessment
 
-The strongest candidate is `_raster_source_release_func()` because it leaks on
-the successful callback path whenever the release callback returns `None`.
+The strongest issue is `scaled_font_text_to_glyphs()` because it is a
+deterministic success-path leak in loops and the number of leaked tuples grows
+with every converted glyph and cluster.
 
-The `surface.c` MIME-data interned-string leaks are also credible and likely
+The raster callback leak is also deterministic whenever a release callback
+correctly returns `None`. The `surface.c` MIME-data interned-string leaks are
 triggered by ordinary `set_mime_data()` / `get_mime_data()` usage. The
-`error_get_type_combined()` leak is smaller, but still a straightforward
+`error_get_type_combined()` leak is smaller, but remains a straightforward
 owned-reference cleanup bug.
